@@ -1,4 +1,3 @@
-# create vpc
 resource "aws_vpc" "vpc" {
   cidr_block              = var.cidr_block
   instance_tenancy        = "default"
@@ -9,7 +8,6 @@ resource "aws_vpc" "vpc" {
   }
 }
 
-# create internet gateway and attach it to vpc
 resource "aws_internet_gateway" "internet_gateway" {
   vpc_id    = aws_vpc.vpc.id
 
@@ -18,7 +16,6 @@ resource "aws_internet_gateway" "internet_gateway" {
   }
 }
 
-# use data source to get all avalablility zones in region
 data "aws_availability_zones" "available_zones" {
     state = "available"
 
@@ -45,7 +42,6 @@ resource "aws_subnet" "public_subnet" {
   }
 }
 
-# create route table and add public route
 resource "aws_route_table" "public_route_table" {
   vpc_id       = aws_vpc.vpc.id
 
@@ -59,14 +55,12 @@ resource "aws_route_table" "public_route_table" {
   }
 }
 
-# associate public subnet az1 to "public route table"
 resource "aws_route_table_association" "public_subnet_route_table_association" {
   count               = length(var.public_subnets)
   subnet_id           = element(aws_subnet.public_subnet.*.id,count.index)
   route_table_id      = aws_route_table.public_route_table.id
 }
 
-# create private app subnet az1
 resource "aws_subnet" "private_subnet" {
   count                    = length(data.aws_availability_zones.available_zones.names)
   vpc_id                   = aws_vpc.vpc.id
@@ -79,4 +73,39 @@ resource "aws_subnet" "private_subnet" {
   }
 }
 
+resource "aws_route_table" "private_route_table" {
+  vpc_id       = aws_vpc.vpc.id
 
+  tags       = {
+    Name     = "${var.project_name}-Private route Table"
+  }
+}
+
+resource "aws_route_table_association" "private_subnet_route_table_association" {
+  count               = length(var.private_subnets)
+  subnet_id           = element(aws_subnet.private_subnet.*.id,count.index)
+  route_table_id      = aws_route_table.private_route_table.id
+}
+
+resource "aws_eip" "nat_eip" {
+  depends_on = [aws_internet_gateway.internet_gateway]
+
+   tags       = {
+    Name     = "${var.project_name}-EIP"
+  }
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = element(aws_subnet.public_subnet.*.id, 0)
+
+  tags       = {
+    Name     = "${var.project_name}-NAT"
+  }
+}
+
+resource "aws_route" "private_internet_gateway" {
+  route_table_id         = aws_route_table.private_route_table.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_nat_gateway.nat.id
+}
